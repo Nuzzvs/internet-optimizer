@@ -34,17 +34,17 @@ jobs:
           echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
           # Create local.properties so Gradle finds the Android SDK
           echo "sdk.dir=$HOME/android-sdk" > local.properties
-          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses
           $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
           # Verify SDK setup
           echo "===SDK VERIFICATION==="
-          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --list 2>/dev/null | grep -E "platforms|build-tools" || true
+          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --list 2>/dev/null | grep -E "platforms|build-tools"
           echo "===END_SDK_VERIFICATION==="
 
       - name: Verify Gradle setup
         run: |
-          ./gradlew tasks --no-daemon 2>&1 | head -20 || true
+          ./gradlew tasks --no-daemon 2>&1 | head -20
           echo "===GRADLE_READY==="
 
       - name: Build Android APK
@@ -56,9 +56,9 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleDebug --stacktrace --no-daemon --no-configuration-cache 2>&1 | tee /tmp/gradle_output.txt
           echo "===GRADLE_BUILD_LOG==="
-          cat /tmp/gradle_output.txt || true
+          cat /tmp/gradle_output.txt
           echo "===END_GRADLE_BUILD_LOG==="
-          # Find all APK and AAB files to discover actual output location
+          # Find all APK and AAB files to verify output location
           echo "===FIND_OUTPUT_FILES==="
           find . -name "*.apk" -type f -print
           find . -name "*.aab" -type f -print
@@ -68,6 +68,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          path: |
-            app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
