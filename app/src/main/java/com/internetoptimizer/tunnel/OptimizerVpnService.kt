@@ -22,7 +22,7 @@ import android.util.Log
  *
  * Why a separate VpnService + Service split?
  *   Android requires the VPN setup in VpnService (it has the privileged
- *   `establishInterface()` method). But we want the tunnel logic
+ *   `establish()` method). But we want the tunnel logic
  *   (native JNI, coroutines) in a regular Service for cleaner lifecycle
  *   management and foreground notification handling.
  *
@@ -30,7 +30,7 @@ import android.util.Log
  *   1. MainActivity → startForegroundService(TunnelService.ACTION_START)
  *   2. TunnelService.onStartCommand → starts tunnel
  *   3. TunnelManager uses VpnServiceProvider to get the VpnService
- *   4. VpnService.Builder.establishInterface() creates the TUN fd
+ *   4. VpnService.Builder.establish() creates the TUN fd
  *   5. TunnelManager passes the fd to nativeRunTunnel()
  *   6. Native Rust code reads/writes packets on the fd
  */
@@ -73,7 +73,7 @@ class OptimizerVpnService : VpnService() {
         excludedApps: List<String> = emptyList(),
     ): ParcelFileDescriptor? {
         return try {
-            val builder = VpnService.Builder()
+            val builder = this.Builder()
                 .setSession("Internet Optimizer")
                 .setMtu(1500)
                 .addAddress("10.0.0.2", 32)
@@ -92,7 +92,7 @@ class OptimizerVpnService : VpnService() {
                 }
             }
 
-            vpnInterface = builder.establishInterface()
+            vpnInterface = builder.establish()
             vpnInterface
         } catch (e: Exception) {
             Log.e(TAG, "Failed to establish TUN interface", e)

@@ -129,11 +129,7 @@ class MainActivity : ComponentActivity() {
         val serviceIntent = Intent(this, TunnelService::class.java).apply {
             action = TunnelService.ACTION_STOP
         }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            stopForegroundService(serviceIntent)
-        } else {
-            stopService(serviceIntent)
-        }
+        stopService(serviceIntent)
         Toast.makeText(this, "Otimização desativada", Toast.LENGTH_SHORT).show()
     }
 
