@@ -74,6 +74,9 @@ class TunnelService : Service(), CoroutineScope {
 
         when (intent?.action) {
             ACTION_START -> {
+                // MUST call startForeground() IMMEDIATELY (before any potentially
+                // long-running work) to avoid ForegroundServiceDidNotStartInTimeException.
+                startForeground(NOTIFICATION_ID, buildNotification(isRunning = true))
                 // Ensure the VpnService is running so VpnServiceProvider is populated
                 val vpnIntent = Intent(this, OptimizerVpnService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -82,7 +85,6 @@ class TunnelService : Service(), CoroutineScope {
                     startService(vpnIntent)
                 }
                 startTunnel(intent)
-                startForeground(NOTIFICATION_ID, buildNotification(isRunning = true))
             }
             ACTION_STOP -> {
                 stopTunnel()

@@ -1,9 +1,13 @@
 package com.internetoptimizer.tunnel
 
+import android.app.Notification
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.internetoptimizer.R
 
 /**
  * The VpnService that creates the TUN interface.
@@ -51,7 +55,34 @@ class OptimizerVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "VpnService startCommand: ${intent?.action}")
+        // MUST call startForeground() IMMEDIATELY to avoid
+        // ForegroundServiceDidNotStartInTimeException on Android 8+.
+        // This service is launched via startForegroundService() from TunnelService,
+        // so we must promote it to foreground right away, even before the tunnel
+        // is established. The notification is a basic placeholder; the real
+        // tunnel notification is managed by TunnelService.
+        startForeground(2, buildPlaceholderNotification())
         return START_STICKY
+    }
+
+    private fun buildPlaceholderNotification(): Notification {
+        val channelId = "vpn_service_channel"
+        // Ensure the notification channel exists (required on Android O+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                channelId,
+                "Serviço VPN",
+                android.app.NotificationManager.IMPORTANCE_LOW
+            )
+            channel.description = "Notificação do serviço VPN do Internet Optimizer"
+            val mgr = getSystemService(android.app.NotificationManager::class.java)
+            mgr?.createNotificationChannel(channel)
+        }
+        return NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Internet Optimizer")
+            .setContentText("Túnel VPN em estabelecimento")
+            .setSmallIcon(R.drawable.ic_stat_name)
+            .build()
     }
 
     /**
