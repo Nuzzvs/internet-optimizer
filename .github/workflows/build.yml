@@ -43,12 +43,12 @@ jobs:
           echo "===END_SDK_VERIFICATION==="
 
       - name: Build Android APK
-        env:
-          ANDROID_HOME: ${{ env.HOME }}/android-sdk
-          ANDROID_SDK_ROOT: ${{ env.HOME }}/android-sdk
         run: |
           set -o pipefail
           chmod +x ./gradlew
+          # Set Android SDK environment variables using shell variable expansion
+          export ANDROID_HOME="$HOME/android-sdk"
+          export ANDROID_SDK_ROOT="$HOME/android-sdk"
           ./gradlew assembleDebug --stacktrace --no-daemon --no-configuration-cache 2>&1 | tee /tmp/gradle_output.txt
           echo "===GRADLE_BUILD_LOG==="
           cat /tmp/gradle_output.txt
