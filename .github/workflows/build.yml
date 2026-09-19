@@ -44,8 +44,8 @@ jobs:
 
       - name: Build Android APK
         env:
-          ANDROID_HOME: $HOME/android-sdk
-          ANDROID_SDK_ROOT: $HOME/android-sdk
+          ANDROID_HOME: ${{ env.HOME }}/android-sdk
+          ANDROID_SDK_ROOT: ${{ env.HOME }}/android-sdk
         run: |
           set -o pipefail
           chmod +x ./gradlew
