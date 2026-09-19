@@ -16,6 +16,7 @@ import com.internetoptimizer.app.TunnelState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,11 +33,14 @@ import kotlin.coroutines.CoroutineContext
  * 2. Establishes the TUN interface via [OptimizerVpnService.establishTunnel].
  * 3. Passes the TUN fd to the native Rust tunnel engine.
  * 4. Maintains a persistent notification (required for foreground services
- *    on Android 8+).
- *
+ *    on Android 8+).\n *
  * The service runs on a background coroutine. When the system kills the
  * process, the tunnel is lost, but [BootReceiver] can restart it if
  * auto-start is enabled.
+ *
+ * KEY FIX: The service now publishes its [TunnelState] to
+ * [TunnelStateRepository] so the UI can observe the real tunnel status
+ * instead of guessing.
  */
 class TunnelService : Service(), CoroutineScope {
 
@@ -53,11 +57,12 @@ class TunnelService : Service(), CoroutineScope {
     private val job = Job()
     override val coroutineContext: CoroutineContext = Dispatchers.IO + job
 
-    private val _tunnelState = MutableStateFlow(TunnelState.Stopped)
-    val tunnelState: StateFlow<TunnelState> = _tunnelState.asStateFlow()
-
     private var configManager: ConfigManager? = null
     private var tunnelManager: TunnelManager? = null
+
+    // Internal tunnel state — kept for debugging, but the authoritative
+    // state that the UI reads is TunnelStateRepository
+    val tunnelState: StateFlow<TunnelState> = TunnelStateRepository.tunnelState
 
     override fun onCreate() {
         super.onCreate()
@@ -76,7 +81,9 @@ class TunnelService : Service(), CoroutineScope {
             ACTION_START -> {
                 // MUST call startForeground() IMMEDIATELY (before any potentially
                 // long-running work) to avoid ForegroundServiceDidNotStartInTimeException.
-                startForeground(NOTIFICATION_ID, buildNotification(isRunning = true))
+                startForeground(NOTIFICATION_ID, buildNotification(isRunning = false))
+                TunnelStateRepository.updateState(TunnelState.Starting)
+
                 // Ensure the VpnService is running so VpnServiceProvider is populated
                 val vpnIntent = Intent(this, OptimizerVpnService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -100,20 +107,22 @@ class TunnelService : Service(), CoroutineScope {
 
         // Wait for the VpnService to be registered (with timeout)
         launch {
-            _tunnelState.value = TunnelState.Connecting
+            TunnelStateRepository.updateState(TunnelState.Connecting)
+            updateNotification(isRunning = false, status = "Conectando...")
 
             // Poll for up to 5 seconds waiting for VpnServiceProvider to be set
             var vpnService: OptimizerVpnService? = VpnServiceProvider.get() as? OptimizerVpnService
             var attempts = 0
             while (vpnService == null && attempts < 50) {
-                kotlinx.coroutines.delay(100)
+                delay(100)
                 vpnService = VpnServiceProvider.get() as? OptimizerVpnService
                 attempts++
             }
 
             if (vpnService == null) {
                 Log.e(TAG, "VpnService not registered after timeout")
-                _tunnelState.value = TunnelState.Stopped
+                TunnelStateRepository.updateState(TunnelState.Stopped)
+                updateNotification(isRunning = false, status = "Pronto")
                 return@launch
             }
 
@@ -129,17 +138,20 @@ class TunnelService : Service(), CoroutineScope {
                 dnsUpstreamIp = dnsUpstreamIp,
                 excludedApps = excludedApps,
             )
-            _tunnelState.value = if (result == true) {
-                TunnelState.Running
+            if (result == true) {
+                TunnelStateRepository.updateState(TunnelState.Running)
+                updateNotification(isRunning = true, status = "Otimizando conexão...")
             } else {
-                TunnelState.Stopped
+                TunnelStateRepository.updateState(TunnelState.Stopped)
+                updateNotification(isRunning = false, status = "Desativado")
             }
         }
     }
 
     private fun stopTunnel() {
         tunnelManager?.stopTunnel()
-        _tunnelState.value = TunnelState.Stopped
+        TunnelStateRepository.updateState(TunnelState.Stopped)
+        updateNotification(isRunning = false, status = "Pronto para otimizar")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -148,6 +160,12 @@ class TunnelService : Service(), CoroutineScope {
         super.onDestroy()
         stopTunnel()
         job.cancel()
+    }
+
+    private fun updateNotification(isRunning: Boolean, status: String) {
+        val notification = buildNotification(isRunning, statusText = status)
+        val mgr = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        mgr.notify(NOTIFICATION_ID, notification)
     }
 
     private fun createNotificationChannel() {
@@ -164,29 +182,32 @@ class TunnelService : Service(), CoroutineScope {
         }
     }
 
-    private fun buildNotification(isRunning: Boolean): Notification {
+    private fun buildNotification(
+        isRunning: Boolean,
+        statusText: String = "",
+    ): Notification {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Internet Optimizer")
             .setSmallIcon(R.drawable.ic_stat_name)
 
-        if (isRunning) {
-            builder.setContentText(getString(R.string.notification_content_running))
-                .setOngoing(true)
-                .addAction(
-                    android.R.drawable.ic_delete,
-                    getString(R.string.notification_action_stop),
-                    PendingIntent.getActivity(
-                        this,
-                        0,
-                        Intent(ACTION_STOP).setClassName(
-                            packageName, TunnelService::class.java.name
-                        ),
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        if (isRunning || statusText.isNotEmpty()) {
+            builder.setContentText(statusText.ifEmpty { getString(R.string.notification_content_running) })
+            builder.setOngoing(true)
+            builder.addAction(
+                android.R.drawable.ic_delete,
+                getString(R.string.notification_action_stop),
+                PendingIntent.getActivity(
+                    this,
+                    0,
+                    Intent(ACTION_STOP).setClassName(
+                        packageName, TunnelService::class.java.name
                     ),
-                )
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                ),
+            )
         } else {
             builder.setContentText("Pronto para otimizar")
-                .setOngoing(false)
+            builder.setOngoing(false)
         }
 
         return builder.build()

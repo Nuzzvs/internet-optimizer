@@ -9,13 +9,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
-import com.internetoptimizer.app.ConfigManager
 import com.internetoptimizer.network.NetworkClient
 import com.internetoptimizer.network.SpeedTest
 import com.internetoptimizer.tunnel.OptimizerVpnService
 import com.internetoptimizer.tunnel.TunnelService
 import com.internetoptimizer.ui.MainScreen
-import com.internetoptimizer.ui.MainUiState
 import com.internetoptimizer.ui.MainViewModel
 import com.internetoptimizer.ui.SettingsScreen
 import kotlinx.coroutines.flow.collectLatest
@@ -29,6 +27,10 @@ import kotlinx.coroutines.launch
  * 2. Requests VPN permission when the user taps the toggle for the first time.
  * 3. Observes the MainViewModel state for UI updates.
  * 4. Switches between MainScreen and SettingsScreen based on navigation state.
+ *
+ * KEY FIX: The toggle delegate now calls [MainViewModel.toggleTunnel] which
+ * updates [TunnelStateRepository] — the single source of truth shared with
+ * TunnelService. The UI reflects the real tunnel state, not a local flag.
  */
 class MainActivity : ComponentActivity() {
 
@@ -64,11 +66,10 @@ class MainActivity : ComponentActivity() {
         // Observe UI state and render the appropriate screen
         lifecycleScope.launch {
             viewModel.uiState.collectLatest { uiState ->
-                val cfg = configManager.loadConfig()
                 setContent {
                     if (uiState.showSettings) {
                         SettingsScreen(
-                            config = cfg,
+                            config = uiState.config,
                             onConfigChange = { newConfig ->
                                 configManager.saveConfig(newConfig)
                                 viewModel.loadConfig()
@@ -79,7 +80,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         MainScreen(
                             uiState = uiState,
-                            onToggleTunnel = { handleToggleTunnel(uiState.isTunnelActive) },
+                            onToggleTunnel = { handleToggleTunnel() },
                             onSettingsClick = { showSettings() },
                             onSpeedTestClick = { runSpeedTest() },
                             onExcludedAppsClick = { openAppPicker() },
@@ -93,10 +94,17 @@ class MainActivity : ComponentActivity() {
         viewModel.loadConfig()
     }
 
-    private fun handleToggleTunnel(isCurrentlyActive: Boolean) {
+    /**
+     * Delegates to the ViewModel to update the shared tunnel state,
+     * then starts or stops the actual service accordingly.
+     */
+    private fun handleToggleTunnel() {
+        val isCurrentlyActive = viewModel.uiState.value.isTunnelActive
         if (isCurrentlyActive) {
             stopTunnelService()
+            viewModel.toggleTunnel()
         } else {
+            viewModel.toggleTunnel()
             // Request VPN permission first via VpnService.prepare()
             val intent = VpnService.prepare(this)
             if (intent != null) {
@@ -141,7 +149,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showSettings() {
-        viewModel.refreshConfig()
+        viewModel.loadConfig()
     }
 
     private fun runSpeedTest() {
